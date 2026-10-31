@@ -26,9 +26,195 @@ jobs:
           channel: 'stable'
           cache: true
 
-      - name: Fix / Create Android Platform Files
+      - name: Setup Project Structure & Missing Files
         run: |
+          # 1. Tạo lại cấu trúc thư mục chuẩn Android nếu chưa có
           flutter create . --org com.reading.timer --project-name reading_timer_app --platforms=android
+          
+          # 2. Tạo thư mục lib/screens nếu chưa tồn tại
+          mkdir -p lib/screens lib/services
+          
+          # 3. Tự động viết lại file home_timer_screen.dart đầy đủ code
+          cat << 'EOF' > lib/screens/home_timer_screen.dart
+          import 'dart:async';
+          import 'package:flutter/material.dart';
+          import '../services/storage_service.dart';
+
+          class HomeTimerScreen extends StatefulWidget {
+            const HomeTimerScreen({super.key});
+
+            @override
+            State<HomeTimerScreen> createState() => _HomeTimerScreenState();
+          }
+
+          class _HomeTimerScreenState extends State<HomeTimerScreen> {
+            bool _isRunning = false;
+            int _todaySeconds = 0;
+            int _sessionStartTimestamp = 0;
+            Timer? _uiTimer;
+            String _selectedCategory = 'Sách';
+
+            final List<String> _categories = ['Sách', 'Báo', 'Blog', 'Linh tinh'];
+
+            @override
+            void initState() {
+              super.initState();
+              _loadInitialData();
+            }
+
+            Future<void> _loadInitialData() async {
+              int savedSeconds = await StorageService.getTodaySeconds();
+              String category = await StorageService.getSelectedCategory();
+              setState(() {
+                _todaySeconds = savedSeconds;
+                _selectedCategory = category;
+              });
+            }
+
+            void _toggleTimer() async {
+              if (_isRunning) {
+                _uiTimer?.cancel();
+                int elapsedSessionSeconds = DateTime.now().difference(DateTime.fromMillisecondsSinceEpoch(_sessionStartTimestamp)).inSeconds;
+                setState(() {
+                  _todaySeconds += elapsedSessionSeconds;
+                  _isRunning = false;
+                });
+                await StorageService.saveTodaySeconds(_todaySeconds);
+              } else {
+                setState(() {
+                  _isRunning = true;
+                  _sessionStartTimestamp = DateTime.now().millisecondsSinceEpoch;
+                });
+                _uiTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
+                  setState(() {});
+                });
+              }
+            }
+
+            void _changeCategory(String category) async {
+              setState(() {
+                _selectedCategory = category;
+              });
+              await StorageService.saveSelectedCategory(category);
+            }
+
+            String _formatSeconds(int totalSeconds) {
+              int hours = totalSeconds ~/ 3600;
+              int minutes = (totalSeconds % 3600) ~/ 60;
+              int seconds = totalSeconds % 60;
+              return '${hours.toString().padLeft(2, '0')}:${minutes.toString().padLeft(2, '0')}:${seconds.toString().padLeft(2, '0')}';
+            }
+
+            @override
+            Widget build(BuildContext context) {
+              int currentSessionSeconds = 0;
+              if (_isRunning) {
+                currentSessionSeconds = DateTime.now().difference(DateTime.fromMillisecondsSinceEpoch(_sessionStartTimestamp)).inSeconds;
+              }
+              int displayTotalSeconds = _todaySeconds + currentSessionSeconds;
+
+              return Scaffold(
+                backgroundColor: const Color(0xFF121212),
+                body: SafeArea(
+                  child: Padding(
+                    padding: const EdgeInsets.all(24.0),
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: [
+                            const Row(
+                              children: [
+                                Text('🔥', style: TextStyle(fontSize: 20)),
+                                SizedBox(width: 8),
+                                Text('Streak: 5 ngày', style: TextStyle(color: Colors.white70, fontSize: 16)),
+                              ],
+                            ),
+                            IconButton(
+                              icon: const Icon(Icons.settings, color: Colors.white70),
+                              onPressed: () {},
+                            ),
+                          ],
+                        ),
+                        Column(
+                          children: [
+                            const Text(
+                              'HÔM NAY ĐÃ NẠP',
+                              style: TextStyle(color: Colors.grey, fontSize: 14, letterSpacing: 1.5),
+                            ),
+                            const SizedBox(height: 12),
+                            Text(
+                              _formatSeconds(displayTotalSeconds),
+                              style: const TextStyle(
+                                color: Colors.white,
+                                fontSize: 54,
+                                fontWeight: FontWeight.bold,
+                                letterSpacing: 2,
+                              ),
+                            ),
+                            const SizedBox(height: 30),
+                            Wrap(
+                              spacing: 8,
+                              children: _categories.map((cat) {
+                                bool isSelected = _selectedCategory == cat;
+                                return ChoiceChip(
+                                  label: Text(cat),
+                                  selected: isSelected,
+                                  selectedColor: Colors.orangeAccent,
+                                  backgroundColor: Colors.grey[850],
+                                  labelStyle: TextStyle(
+                                    color: isSelected ? Colors.black : Colors.white70,
+                                    fontWeight: FontWeight.bold,
+                                  ),
+                                  onSelected: (selected) {
+                                    if (!_isRunning) _changeCategory(cat);
+                                  },
+                                );
+                              }).toList(),
+                            ),
+                          ],
+                        ),
+                        Column(
+                          children: [
+                            GestureDetector(
+                              onTap: _toggleTimer,
+                              child: Container(
+                                width: 110,
+                                height: 110,
+                                decoration: BoxDecoration(
+                                  shape: BoxShape.circle,
+                                  color: _isRunning ? Colors.redAccent : Colors.orangeAccent,
+                                  boxShadow: [
+                                    BoxShadow(
+                                      color: (_isRunning ? Colors.redAccent : Colors.orangeAccent).withOpacity(0.4),
+                                      blurRadius: 20,
+                                      spreadRadius: 5,
+                                    )
+                                  ],
+                                ),
+                                child: Icon(
+                                  _isRunning ? Icons.pause : Icons.play_arrow,
+                                  size: 50,
+                                  color: Colors.black,
+                                ),
+                              ),
+                            ),
+                            const SizedBox(height: 20),
+                            Text(
+                              _isRunning ? 'Đang đọc... Chạm để tạm dừng' : 'Chạm để bắt đầu đọc',
+                              style: const TextStyle(color: Colors.grey, fontSize: 13),
+                            ),
+                          ],
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              );
+            }
+          }
+          EOF
 
       - name: Install Dependencies
         run: flutter pub get
